@@ -1,7 +1,8 @@
-Q2 sample command scripts
+Q2 test command scripts
 
-Run from the package directory, for example:
-  ./minifs < test_cases/q2/case1_basic.txt
+From the problem2 directory, build minifs and run tests with:
+  make -B minifs
+  ./minifs < test_cases/case1_basic.txt
 
 Scripts use only commands in the specification. Each independent case starts
 with format, which initializes the simulated disk in the working directory.
@@ -29,8 +30,8 @@ case3_blocks.txt
 
 case4_persist_create.txt and case4_persist_restart.txt
   Run these as two separate program invocations, in order:
-    ./minifs < test_cases/q2/case4_persist_create.txt
-    ./minifs < test_cases/q2/case4_persist_restart.txt
+    ./minifs < test_cases/case4_persist_create.txt
+    ./minifs < test_cases/case4_persist_restart.txt
   The hierarchy and Operating Systems content must survive restart. The
   restart script then appends text and reads Operating Systems project.
 

@@ -7,17 +7,17 @@ specification. The supplied examples add no grading requirements.
 Package contents
   CS3103_Project_Specification.docx  Assignment and grading tables
   problem1.c                       Q1 student starter
-  problem2.c                       Q2 student starter
+  problem2.c                       Original Q2 starter
+  problem2/                        Completed Q2 code, tests and report
   Makefile                         Linux build commands
   samples/                         Small input/output examples
   test_cases/q1/                   Macro configurations and testing notes
-  test_cases/q2/                   Mini-file-system command scripts
+  test_cases/q2/                   Instructor-provided Q2 command scripts
   test_cases/q3/                   Scheduling input files
 
-The two C files are incomplete starters. Complete their TODOs. Q1 currently
-prints TODO diagnostics and returns a failure status because verification
-has not been implemented. Q2 currently prints TODO messages for file-system
-operations. Successful compilation does not mean those operations work.
+The Q1 starter prints TODO diagnostics and returns a failure status because
+verification has not been implemented. The completed Q2 source is
+problem2/problem2.c.
 
 Q3 has no supplied source skeleton, as stated in the specification. Create
 problem3.c and implement the required signatures from the document. MLFQ is
@@ -32,7 +32,7 @@ The compiler warning flags in this example are build aids.
 
 Equivalent individual build commands:
   gcc -std=gnu11 -Wall -Wextra -pthread problem1.c -o problem1
-  gcc -std=c11 -Wall -Wextra problem2.c -o minifs
+  gcc -std=gnu11 -Wall -Wextra problem2/problem2.c -o minifs
   gcc -std=c11 -Wall -Wextra problem3.c -o problem3
 
 Run Q1
@@ -42,7 +42,8 @@ Edit the six macros in problem1.c and recompile to change the configuration.
 Q1 does not read the old configuration files or command-line parameters.
 See test_cases/q1/README.txt for the macro mapping and sample settings.
 
-Run Q2
+Run Q2 from the repository root
+  make minifs
   ./minifs
 
 Example commands:
@@ -53,12 +54,17 @@ Example commands:
   exit
 
 The surrounding double quotes are not stored as file content. ls takes no
-argument and lists the current directory. See test_cases/q2/README.txt for
-scripts and the two-session persistence example.
+argument and lists the current directory. To run a test from the repository root:
+  ./minifs < problem2/test_cases/case1_basic.txt
 
-The name and parent_id fields in problem2.c illustrate one way to store a
-directory hierarchy. Save the relationships inside virtual_disk.bin. You may
-change the structures and disk layout as allowed by the specification.
+See problem2/test_cases/README.txt for expected results, the two-run
+persistence test, and commands to use when working inside problem2/.
+
+The simulator stores its state in virtual_disk.bin, a 1 MiB disk with
+4096 blocks of 256 bytes. Block 0 contains the superblock, blocks 1-64
+contain the file allocation table, blocks 65-96 contain the 128 metadata
+records, and blocks 97-4095 contain file data. The 97 reserved metadata
+blocks count as used; the data region has 3999 blocks.
 
 Run Q3 after implementing it
   ./problem3 test_cases/q3/case1.txt

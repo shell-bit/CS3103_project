@@ -12,7 +12,7 @@ all: $(PROGRAMS)
 problem1: problem1.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< -pthread $(LDLIBS)
 
-minifs: problem2.c
+minifs: problem2/problem2.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LDLIBS)
 
 problem3: problem3.c
