@@ -1,0 +1,18 @@
+format
+mkdir old
+create old/a.txt
+write old/a.txt "OLD"
+cd old
+pwd
+format
+pwd
+ls
+stat /
+df
+read /old/a.txt
+create fresh.txt
+write fresh.txt "NEW"
+read fresh.txt
+stat fresh.txt
+df
+exit

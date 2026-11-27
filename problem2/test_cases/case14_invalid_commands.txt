@@ -1,0 +1,33 @@
+format
+mkdir box
+create guard.txt
+write guard.txt "SAFE"
+create box/file.txt
+write box/file.txt "DATA"
+df
+unknown_command
+create
+format extra
+read guard.txt extra
+write guard.txt noquotes
+append guard.txt "unfinished
+write guard.txt "ok" extra
+read /box
+write /box "BAD"
+append /box "BAD"
+delete /box
+cd guard.txt
+rmdir guard.txt
+exit extra
+pwd
+read guard.txt
+read box/file.txt
+stat guard.txt
+stat /box
+stat /
+ls
+df
+append guard.txt "!"
+read guard.txt
+stat guard.txt
+exit
