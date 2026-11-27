@@ -1,4 +1,4 @@
-/* Student starter for Problem 1. Complete the TODOs before submission. */
+/* Multi-process producer, worker and consumer pipeline. */
 /* Build on Linux: gcc -std=gnu11 -Wall -Wextra -pthread problem1.c -o problem1 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,6 +18,8 @@
 #define NUM_WORKERS 3
 #define NUM_CONSUMERS 2
 #define ITEMS_PER_PRODUCER 4
+
+#define STOP_ID (-1)
 
 typedef struct {
     int id;
@@ -51,13 +53,8 @@ typedef struct {
 } output_buffer_t;
 
 typedef struct {
-
     input_buffer_t input;
     output_buffer_t output;
-    /* TODO: add shared result records and termination state as needed.
-       You may extend these structures and add synchronization. */
-    /* Counters start at zero in the anonymous mapping. The last producer
-       sends one stop item per worker; the last worker sends one per consumer. */
     int producers_finished; /* protected by input.mutex */
     int workers_finished;   /* protected by output.mutex */
 
@@ -67,27 +64,23 @@ typedef struct {
     int out_of_range_count;
 } shared_t;
 
-/* Generate this producer's input items and insert them into Buffer A. */
+/* Enqueue ITEMS_PER_PRODUCER items in sh->input. The zero-based producer_id
+   selects a disjoint range of IDs. The last producer appends one stop per worker. */
 static void producer(shared_t *sh, int producer_id)
 {
-    /* TODO: for j = 0 .. ITEMS_PER_PRODUCER-1, generate an item with
-       id = producer_id * ITEMS_PER_PRODUCER + j, producer_id as supplied,
-       and value = id + 1. Insert it into sh->input with synchronization.
-       Generate the item outside the buffer's critical section.
-       Use BUFFER_A_SIZE for circular-buffer wraparound.
-       Complete this producer's part of your termination protocol. */
-
     int is_last = 0;
     for (int j = 0; j < ITEMS_PER_PRODUCER; ++j) {
         item_t item;
         item.id = producer_id * ITEMS_PER_PRODUCER + j;
         item.producer_id = producer_id;
-        item.value = item.id + 1; // Generate the item outside the critical section
+        item.value = item.id + 1;
 
         sem_wait(&sh->input.empty);
         sem_wait(&sh->input.mutex);
         sh->input.data[sh->input.in] = item;
         sh->input.in = (sh->input.in + 1) % BUFFER_A_SIZE;
+        /* Count the final insertion under the same lock. When the count
+           reaches NUM_PRODUCERS, all ordinary items have been enqueued. */
         if (j == ITEMS_PER_PRODUCER - 1) {
             sh->producers_finished++;
             is_last = (sh->producers_finished == NUM_PRODUCERS);
@@ -97,7 +90,7 @@ static void producer(shared_t *sh, int producer_id)
     }
 
     if (is_last) {
-        const item_t stop = { .id = -1 };
+        const item_t stop = { .id = STOP_ID };
 
         for (int i = 0; i < NUM_WORKERS; ++i) {
             sem_wait(&sh->input.empty);
@@ -108,20 +101,12 @@ static void producer(shared_t *sh, int producer_id)
             sem_post(&sh->input.full);
         }
     }
-    fprintf(stderr, "Producer %d: TODO\n", producer_id);
 }
 
-
-/* Transfer input items through the computation stage into Buffer B. */
+/* Move items from sh->input to sh->output, preserving each item's IDs and
+   tagging its square with worker_id. The last worker sends one stop per consumer. */
 static void worker(shared_t *sh, int worker_id)
 {
-    /* TODO: remove an item from sh->input and release its lock.
-       Compute (long)item.value * item.value outside the critical section.
-       Preserve id and producer_id, and record this worker_id.
-       Insert the result into sh->output using BUFFER_B_SIZE for wraparound.
-       Follow your termination protocol; an empty buffer is not completion. */
-    const int stop_id = -1;
-
     for (;;) {
         sem_wait(&sh->input.full);
         sem_wait(&sh->input.mutex);
@@ -130,10 +115,11 @@ static void worker(shared_t *sh, int worker_id)
         sem_post(&sh->input.mutex);
         sem_post(&sh->input.empty);
 
-        if (item.id == stop_id) {
+        if (item.id == STOP_ID) {
             break;
         }
 
+        /* A is released before both the calculation and the wait for space in B. */
         result_t result = {
             .id = item.id,
             .producer_id = item.producer_id,
@@ -149,13 +135,15 @@ static void worker(shared_t *sh, int worker_id)
         sem_post(&sh->output.full);
     }
 
+    /* Other workers may still be computing when this worker sees a stop.
+       Each worker counts itself only after publishing all its results in B. */
     sem_wait(&sh->output.mutex);
     sh->workers_finished++;
     int is_last = (sh->workers_finished == NUM_WORKERS);
     sem_post(&sh->output.mutex);
 
     if (is_last) {
-        const result_t stop = { .id = stop_id };
+        const result_t stop = { .id = STOP_ID };
         for (int i = 0; i < NUM_CONSUMERS; ++i) {
             sem_wait(&sh->output.empty);
             sem_wait(&sh->output.mutex);
@@ -165,18 +153,13 @@ static void worker(shared_t *sh, int worker_id)
             sem_post(&sh->output.full);
         }
     }
-    fprintf(stderr, "Worker %d: TODO\n", worker_id);
 }
 
-/* Collect Buffer B results into synchronized shared records. */
+/* Drain sh->output until a stop, saving rows and counting IDs under output.mutex.
+   consumer_id is unused because all consumers update the same per-item records. */
 static void consumer(shared_t *sh, int consumer_id)
 {
-    /* TODO: remove results from sh->output and save them in shared memory.
-       Synchronize shared updates and retain enough information for the
-       parent to detect missing, duplicate, or out-of-range item IDs.
-       Exclude termination records and follow your termination protocol.
-       The parent prints the final results in ascending item ID order. */
-    const int stop_id = -1;
+    (void)consumer_id;
     const int total_items = NUM_PRODUCERS * ITEMS_PER_PRODUCER;
     result_t result;
 
@@ -186,25 +169,24 @@ static void consumer(shared_t *sh, int consumer_id)
         result = sh->output.data[sh->output.out];
         sh->output.out = (sh->output.out + 1) % BUFFER_B_SIZE;
 
+        /* A duplicate overwrites its row but remains visible in occurrences. */
         if (result.id >= 0 && result.id < total_items) {
             sh->results[result.id] = result;
             sh->occurrences[result.id]++;
-        } else if (result.id != stop_id) {
+        } else if (result.id != STOP_ID) {
             sh->out_of_range_count++;
         }
 
         sem_post(&sh->output.mutex);
         sem_post(&sh->output.empty);
-    } while (result.id != stop_id);
-
-    fprintf(stderr, "Consumer %d: TODO\n", consumer_id);
+    } while (result.id != STOP_ID);
 }
 
-/* Initialize the shared buffer indices and process-shared semaphores. */
+/* Initialize the parent's shared mapping sh before fork. Both FIFOs start
+   with one mutex permit, one empty permit per slot and zero full permits.
+   Return 0 on success or -1 with errno from the first failed sem_init. */
 static int init_shared(shared_t *sh)
 {
-    /* TODO: initialize any added shared records, synchronization, and
-       termination state here, before any child process is created. */
     memset(sh, 0, sizeof(*sh));
 
     if (sem_init(&sh->input.mutex, 1, 1) == -1 ||
@@ -213,13 +195,13 @@ static int init_shared(shared_t *sh)
         sem_init(&sh->output.mutex, 1, 1) == -1 ||
         sem_init(&sh->output.empty, 1, BUFFER_B_SIZE) == -1 ||
         sem_init(&sh->output.full, 1, 0) == -1) {
-        perror("sem_init");
         return -1;
     }
     return 0;
 }
 
-/* Wait for a child (any child if pid is -1), retrying interrupted waits. */
+/* Reap pid (-1 selects any child) and store its status if status is non-NULL.
+   Return the child's PID on success, or -1 with errno set on failure. */
 static pid_t wait_child(pid_t pid, int *status)
 {
     pid_t child;
@@ -229,7 +211,9 @@ static pid_t wait_child(pid_t pid, int *status)
     return child;
 }
 
-/* Check the collected IDs, fields and counts; return 1 if all are correct. */
+/* Check the rows and counts in sh after all children finish. Return 1 if
+   each expected result occurs once with valid fields, or print errors to stderr
+   and return 0. */
 static int verify_results(const shared_t *sh)
 {
     const int total_items = NUM_PRODUCERS * ITEMS_PER_PRODUCER;
@@ -265,7 +249,9 @@ static int verify_results(const shared_t *sh)
     return valid;
 }
 
-/* Create shared resources, launch all roles, verify results, and clean up. */
+/* Run the pipeline using the configuration macros and reap its children.
+   Print verified rows in ID order and return EXIT_SUCCESS, or report an
+   error and return EXIT_FAILURE. */
 int main(void)
 {
     shared_t *sh = mmap(NULL, sizeof(*sh), PROT_READ | PROT_WRITE,
@@ -276,6 +262,7 @@ int main(void)
     }
 
     if (init_shared(sh) != 0) {
+        perror("sem_init");
         munmap(sh, sizeof(*sh));
         return EXIT_FAILURE;
     }
@@ -307,13 +294,6 @@ int main(void)
     }
     children_ok = 1;
 
-    /* All process groups must be started before waiting for children.
-       TODO: add any parent-side actions required by your termination
-       protocol at the appropriate point; do not wait for a process that
-       still needs a termination action from the parent. */
-    /* The last producer and the last worker send the stop records. */
-    /* TODO: collect and check each child's exit status, rather than
-       discarding it with wait(NULL). */
 reap_children:
     while (children_ok && created > 0) {
         int status;
@@ -344,14 +324,6 @@ reap_children:
             wait_child(children[i], NULL);
     }
 
-    /* TODO: before unmapping shared memory, verify the collected results:
-       - every ID from 0 to NUM_PRODUCERS * ITEMS_PER_PRODUCER - 1 occurs once;
-       - producer_id and result match the generated item;
-       - worker_id is within 0 .. NUM_WORKERS-1;
-       - the total is correct, with no out-of-range IDs.
-       Print the results in ascending item ID order.
-       Set verification_ok only after verification and child-status checks
-       have succeeded. This placeholder is not a completed verifier. */
     int verification_ok = children_ok && verify_results(sh);
     if (verification_ok) {
         printf("id  producer_id  worker_id  result\n");
@@ -361,7 +333,6 @@ reap_children:
         }
     }
 
-    /* TODO: destroy any additional semaphores you initialize. */
     sem_destroy(&sh->input.mutex);
     sem_destroy(&sh->input.empty);
     sem_destroy(&sh->input.full);
